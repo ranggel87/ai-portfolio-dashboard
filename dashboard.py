@@ -1,51 +1,83 @@
 import streamlit as st
 import pandas as pd
-import io
+import requests
+import plotly.express as px
 
 st.set_page_config(page_title="AI Crypto Portfolio Advisor", layout="wide")
-st.title("📊 AI Crypto Portfolio Advisor")
 
-st.subheader("📄 Preview Data")
+st.title("📊 AI Crypto Portfolio Advisor")
+st.subheader("📁 Preview Data")
 
 uploaded_file = st.file_uploader("Upload CSV transaksi kamu (Binance/Bitget manual export)", type=["csv"])
 
 if uploaded_file is not None:
-    # Deteksi delimiter otomatis
-    sample = uploaded_file.read(1024).decode()
-    delimiter = ";" if sample.count(";") > sample.count(",") else ","
-    uploaded_file.seek(0)
+    df = pd.read_csv(uploaded_file)
 
-    # Baca file CSV
-    df = pd.read_csv(uploaded_file, delimiter=delimiter)
+    # Preview awal
+    st.write("### 🔍 File data:")
+    st.dataframe(df)
 
-    # Preview
-    st.dataframe(df.head())
+    # Pastikan header kolom sudah benar
+    required_cols = {"Date", "Coin", "Type", "Amount", "Price", "Exchange", "Fee"}
+    if not required_cols.issubset(df.columns):
+        st.warning(f"⚠️ Kolom wajib tidak lengkap. Harus ada: {', '.join(required_cols)}")
+        st.stop()
 
-    # Kolom penting: Coin dan Amount
-    missing_cols = []
-    for col in ["Coin", "Amount"]:
-        if col not in df.columns:
-            missing_cols.append(col)
+    # Konversi tipe data
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    df["Fee"] = pd.to_numeric(df["Fee"], errors="coerce").fillna(0)
 
-    if missing_cols:
-        st.warning(f"⚠️ Kolom {', '.join(missing_cols)} tidak ditemukan otomatis. Pilih kolom manual:")
+    # Ringkasan per coin
+    st.subheader("📦 Token Summary")
+    token_summary = df.groupby("Coin")["Amount"].sum().reset_index()
+    token_summary.rename(columns={"Amount": "Total Amount"}, inplace=True)
+    st.dataframe(token_summary)
 
-        # Dropdown manual pemetaan kolom
-        coin_col = st.selectbox("Pilih kolom Coin:", options=df.columns)
-        amount_col = st.selectbox("Pilih kolom Amount:", options=df.columns)
-    else:
-        coin_col = "Coin"
-        amount_col = "Amount"
+    # Mapping Coin ke CoinGecko ID
+    coingecko_mapping = {
+        "BTC": "bitcoin",
+        "ETH": "ethereum",
+        "SOL": "solana",
+        "BNB": "binancecoin",
+        "ARB": "arbitrum",
+        "OP": "optimism"
+        # Tambahkan sesuai kebutuhan
+    }
+    token_summary["CoinGecko_ID"] = token_summary["Coin"].map(coingecko_mapping)
 
-    # Tampilkan ringkasan token
-    st.subheader("📊 Token Summary")
-    try:
-        token_summary = df.groupby(coin_col)[amount_col].sum().reset_index()
-        token_summary.columns = ["Coin", "Total Amount"]
-        st.dataframe(token_summary)
-    except Exception as e:
-        st.error("Terjadi error saat membuat ringkasan. Pastikan file CSV valid.")
-        st.exception(e)
+    def get_token_prices(tokens, vs_currency="usd"):
+        url = "https://api.coingecko.com/api/v3/simple/price"
+        params = {
+            "ids": ",".join(tokens),
+            "vs_currencies": vs_currency
+        }
+        try:
+            res = requests.get(url, params=params)
+            return res.json()
+        except:
+            return {}
 
+    prices = get_token_prices(token_summary["CoinGecko_ID"].dropna().tolist())
+
+    # Ambil harga live dan hitung estimasi nilai
+    token_summary["Current_Price_USD"] = token_summary["CoinGecko_ID"].map(lambda x: prices.get(x, {}).get("usd", 0))
+    token_summary["Est_Value_USD"] = token_summary["Total Amount"] * token_summary["Current_Price_USD"]
+
+    # Tampilkan nilai portofolio
+    st.subheader("💰 Portfolio Value (Live)")
+    st.dataframe(token_summary[["Coin", "Total Amount", "Current_Price_USD", "Est_Value_USD"]])
+
+    # Pie chart
+    st.subheader("📊 Portfolio Allocation")
+    fig = px.pie(token_summary, names="Coin", values="Est_Value_USD", title="Distribusi Aset dalam USD")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Insight AI Rebalancing
+    st.subheader("🤖 AI Rebalancing Suggestion")
+    total_portfolio_value = token_summary["Est_Value_USD"].sum()
+    equal_weight = total_portfolio_value / len(token_summary)
+    token_summary["Ideal_Value_USD"] = equal_weight
+    token_summary["Diff_to_Balance"] = token_summary["Est_Value_USD"] - equal_weight
+    st.dataframe(token_summary[["Coin", "Est_Value_USD", "Ideal_Value_USD", "Diff_to_Balance"]])
 else:
-    st.info("⬆️ Silakan upload file CSV kamu untuk mulai.")
+    st.info("Silakan upload file CSV transaksi kamu.")
