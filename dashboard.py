@@ -4,23 +4,35 @@ import pandas as pd
 st.set_page_config(page_title="AI Crypto Portfolio Advisor", layout="wide")
 st.title("📊 AI Crypto Portfolio Advisor")
 
-# --- Upload Section ---
-st.sidebar.header("📁 Upload Your CSV File")
-uploaded_file = st.sidebar.file_uploader("Upload your portfolio CSV", type=["csv"])
+st.sidebar.header("📁 Upload Portfolio CSV")
+uploaded_file = st.sidebar.file_uploader("Upload your CSV", type=["csv"])
 
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    try:
+        # Baca file dengan pemisah titik koma (;)
+        df = pd.read_csv(uploaded_file, sep=';')
+        st.subheader("📄 Preview Data")
+        st.dataframe(df.head())
 
-    st.subheader("📄 Preview Data")
-    st.dataframe(df.head())
+        # Coba deteksi kolom kunci
+        coin_col = None
+        amount_col = None
 
-    # --- Token Summary ---
-    st.subheader("📈 Token Summary")
-    token_summary = df.groupby("Coin")["Amount"].sum().reset_index()
-    st.dataframe(token_summary)
+        for col in df.columns:
+            if str(col).lower() in ["coin", "asset", "symbol", "cur.", "cur", "token"]:
+                coin_col = col
+            if str(col).lower() in ["amount", "buy", "sell", "qty", "quantity"]:
+                amount_col = col
 
-    # --- Placeholder: Narasi & Rebalancing (Coming Soon) ---
-    st.subheader("🧠 Narasi & Rebalancing Insight (Coming Soon)")
-    st.info("Modul analisis narasi dan saran alokasi sedang dikembangkan.")
+        if coin_col and amount_col:
+            df = df.rename(columns={coin_col: "Coin", amount_col: "Amount"})
+            token_summary = df.groupby("Coin")["Amount"].sum().reset_index()
+            st.subheader("📈 Token Summary")
+            st.dataframe(token_summary)
+        else:
+            st.warning("⚠️ Kolom Coin dan Amount tidak ditemukan otomatis. Harap pilih file lain atau edit header.")
+
+    except Exception as e:
+        st.error(f"❌ Error saat membaca file: {e}")
 else:
-    st.warning("Silakan upload file CSV untuk memulai.")
+    st.info("⬆️ Silakan upload file CSV terlebih dahulu.")
