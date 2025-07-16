@@ -91,3 +91,37 @@ if uploaded_file is not None:
 
 else:
     st.warning("Silakan upload file CSV transaksi terlebih dahulu.")
+
+st.subheader("🧠 Insight Rebalancing Otomatis")
+
+# Hitung alokasi sekarang
+total_val = port_df["Value ($)"].sum()
+port_df["Actual %"] = port_df["Value ($)"] / total_val * 100
+
+# Target alokasi: Equal Weight
+num_assets = len(port_df)
+port_df["Target %"] = 100 / num_assets
+port_df["Delta %"] = port_df["Target %"] - port_df["Actual %"]
+
+# Rekomendasi aksi
+def suggest_action(delta):
+    if delta > 2:
+        return "BUY"
+    elif delta < -2:
+        return "SELL"
+    else:
+        return "HOLD"
+
+port_df["Action"] = port_df["Delta %"].apply(suggest_action)
+
+st.dataframe(port_df[["Coin", "Actual %", "Target %", "Delta %", "Action"]])
+
+# Tampilkan saran ringkas
+buy_list = port_df[port_df["Action"] == "BUY"]
+sell_list = port_df[port_df["Action"] == "SELL"]
+
+if not buy_list.empty:
+    st.success("✅ **Saran BUY**: " + ", ".join(buy_list["Coin"]))
+if not sell_list.empty:
+    st.warning("⚠️ **Saran SELL**: " + ", ".join(sell_list["Coin"]))
+
